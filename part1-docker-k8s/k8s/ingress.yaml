@@ -1,0 +1,50 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: multilang-dev-ingress
+  namespace: devsecops-eval
+  labels:
+    app: multilang-dev-env
+    component: development-environment
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+    # Rate limiting
+    nginx.ingress.kubernetes.io/rate-limit-connections: "10"
+    nginx.ingress.kubernetes.io/rate-limit-requests-per-second: "5"
+    # Security headers
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      add_header X-Frame-Options "SAMEORIGIN" always;
+      add_header X-Content-Type-Options "nosniff" always;
+      add_header X-XSS-Protection "1; mode=block" always;
+      add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+spec:
+  tls:
+  - hosts:
+    - multilang-dev.local
+    secretName: multilang-dev-tls
+  rules:
+  - host: multilang-dev.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: multilang-dev-service
+            port:
+              number: 8080
+      - path: /jupyter
+        pathType: Prefix
+        backend:
+          service:
+            name: multilang-dev-service
+            port:
+              number: 8888

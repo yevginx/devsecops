@@ -1,0 +1,78 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: multilang-dev-netpol
+  namespace: devsecops-eval
+  labels:
+    app: multilang-dev-env
+    component: development-environment
+spec:
+  podSelector:
+    matchLabels:
+      app: multilang-dev-env
+  policyTypes:
+  - Ingress
+  - Egress
+  
+  # Ingress rules
+  ingress:
+  # Allow ingress from nginx ingress controller
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 8080
+    - protocol: TCP
+      port: 8888
+  
+  # Allow ingress from monitoring namespace (Prometheus)
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 8080
+  
+  # Allow ingress within same namespace
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: devsecops-eval
+    ports:
+    - protocol: TCP
+      port: 8080
+    - protocol: TCP
+      port: 8888
+    - protocol: TCP
+      port: 22
+  
+  # Egress rules
+  egress:
+  # Allow DNS resolution
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+  
+  # Allow HTTPS for package downloads
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+  
+  # Allow HTTP for package repositories
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 80
+  
+  # Allow egress to same namespace
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: devsecops-eval

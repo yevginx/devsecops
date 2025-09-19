@@ -1,0 +1,152 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: multilang-dev-env
+  namespace: devsecops-eval
+  labels:
+    app: multilang-dev-env
+    version: v1.0.0
+    component: development-environment
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: multilang-dev-env
+  template:
+    metadata:
+      labels:
+        app: multilang-dev-env
+        version: v1.0.0
+        component: development-environment
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: multilang-container
+        image: evgenyglinsky/devsecops-multilang:v1.0.0
+        imagePullPolicy: Always
+        
+        # Security context for container
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false  # Set to false due to R/Python package requirements
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          capabilities:
+            drop:
+            - ALL
+        
+        # Resource limits and requests
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        
+        # Environment variables
+        env:
+        - name: ENVIRONMENT
+          value: "kubernetes"
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        
+        # Liveness probe
+        livenessProbe:
+          exec:
+            command:
+            - /bin/bash
+            - -c
+            - "python3 -c 'print(\"Python 3 OK\")' && python2 -c 'print(\"Python 2 OK\")' && R --slave -e 'cat(\"R OK\")'"
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        
+        # Readiness probe
+        readinessProbe:
+          exec:
+            command:
+            - /bin/bash
+            - -c
+            - "python3 -c 'import sys; print(\"Ready\")'"
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        # Startup probe
+        startupProbe:
+          exec:
+            command:
+            - /bin/bash
+            - -c
+            - "python3 -c 'print(\"Starting\")'"
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 10
+        
+        # Volume mounts
+        volumeMounts:
+        - name: workspace
+          mountPath: /workspace
+        - name: tmp
+          mountPath: /tmp
+        
+        # Command to keep pod running
+        command: ["/bin/bash"]
+        args: ["-c", "while true; do sleep 30; done"]
+      
+      # Volumes
+      volumes:
+      - name: workspace
+        emptyDir:
+          sizeLimit: 1Gi
+      - name: tmp
+        emptyDir:
+          sizeLimit: 100Mi
+      
+      # Pod disruption budget considerations
+      terminationGracePeriodSeconds: 30
+      
+      # Node selection (optional)
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      
+      # Tolerations for node taints (if needed)
+      tolerations:
+      - key: "node.kubernetes.io/not-ready"
+        operator: "Exists"
+        effect: "NoExecute"
+        tolerationSeconds: 300
+      - key: "node.kubernetes.io/unreachable"
+        operator: "Exists"
+        effect: "NoExecute"
+        tolerationSeconds: 300

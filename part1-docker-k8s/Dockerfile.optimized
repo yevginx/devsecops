@@ -1,0 +1,68 @@
+# Optimized Multi-language development environment
+# Build time optimizations: multi-stage build, layer caching, parallel installs
+
+# Stage 1: Base system setup
+FROM ubuntu:20.04 as base
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
+# Install system dependencies in a single layer with cleanup
+RUN apt-get update && apt-get install -y \
+    curl wget git vim unzip software-properties-common \
+    apt-transport-https ca-certificates gnupg lsb-release \
+    build-essential gcc g++ make cmake \
+    python2.7 python2.7-dev python3 python3-dev python3-pip python3-venv \
+    r-base r-base-dev \
+    libssl-dev libcurl4-openssl-dev libxml2-dev libfontconfig1-dev \
+    libharfbuzz-dev libfribidi-dev libfreetype6-dev libpng-dev \
+    libtiff5-dev libjpeg-dev \
+    && curl https://bootstrap.pypa.io/pip/2.7/get-pip.py -o get-pip.py \
+    && python2.7 get-pip.py \
+    && rm get-pip.py \
+    && ln -s /usr/bin/python2.7 /usr/bin/python2 \
+    && ln -s /usr/bin/python3 /usr/bin/python \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# Stage 2: Python package installation
+FROM base as python-packages
+
+WORKDIR /app
+COPY requirements-python2.txt requirements-python3.txt ./
+
+# Install Python packages with caching and parallel processing
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python2 -m pip install --no-cache-dir -r requirements-python2.txt && \
+    python3 -m pip install --no-cache-dir -r requirements-python3.txt
+
+# Stage 3: R package installation
+FROM python-packages as r-packages
+
+COPY requirements-r.txt ./
+
+# Install R packages with parallel processing
+RUN echo "options(Ncpus = $(nproc))" >> /usr/lib/R/etc/Rprofile.site && \
+    Rscript -e "install.packages(readLines('requirements-r.txt'), repos='https://cran.rstudio.com/', dependencies=TRUE)"
+
+# Stage 4: Final optimized image
+FROM r-packages as final
+
+# Create non-root user
+RUN useradd -m -s /bin/bash devuser && \
+    chown -R devuser:devuser /app
+
+USER devuser
+
+# Set environment variables
+ENV PATH="/home/devuser/.local/bin:$PATH"
+ENV PYTHONPATH="/app:$PYTHONPATH"
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python3 -c "import sys; print('Python 3:', sys.version)" && \
+        python2 -c "import sys; print('Python 2:', sys.version)" && \
+        R --version
+
+# Default command
+CMD ["tail", "-f", "/dev/null"]
