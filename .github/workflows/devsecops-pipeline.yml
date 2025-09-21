@@ -104,7 +104,8 @@ jobs:
         with:
           context: part1-docker-k8s
           file: part1-docker-k8s/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          # Build only arm64 for demo to match local Apple Silicon environment.
+          platforms: linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -161,7 +162,7 @@ jobs:
       - name: Trivy vulnerability scan (JSON)
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ needs.build.outputs.image-ref }}
+          image-ref: ${{ needs.build.outputs['image-ref'] }}
           format: json
           output: trivy-results.json
 
@@ -197,7 +198,7 @@ jobs:
 
       - name: Prepare deployment bundle
         env:
-          IMAGE_REFERENCE: ${{ needs.build.outputs.image-ref }}
+          IMAGE_REFERENCE: ${{ needs.build.outputs['image-ref'] }}
           IMAGE_TAG: ${{ needs.build.outputs.version-tag }}
         run: |
           mkdir -p deployment-package/k8s
@@ -221,7 +222,7 @@ jobs:
             > deployment-package/deployment-info.txt
 
       - name: Upload deployment artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: k8s-deployment-package
           path: deployment-package/
