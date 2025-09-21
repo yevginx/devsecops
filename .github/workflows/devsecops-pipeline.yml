@@ -129,7 +129,6 @@ jobs:
           format: sarif
           output: trivy-results.sarif
           ignore-unfixed: true
-          args: --platform linux/amd64
 
       - name: Upload Trivy SARIF
         if: github.event_name != 'pull_request' && always()
