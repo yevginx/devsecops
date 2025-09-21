@@ -166,7 +166,6 @@ jobs:
           image-ref: ${{ needs.build.outputs['image-ref'] }}
           format: json
           output: trivy-results.json
-          args: --platform linux/amd64
 
       - name: Summarise vulnerabilities
         run: |
