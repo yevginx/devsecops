@@ -129,6 +129,7 @@ jobs:
           format: sarif
           output: trivy-results.sarif
           ignore-unfixed: true
+          args: --platform linux/arm64
 
       - name: Upload Trivy SARIF
         if: github.event_name != 'pull_request' && always()
@@ -142,6 +143,7 @@ jobs:
         with:
           command: cves
           image: ${{ steps.refs.outputs.image_ref }}
+          platform: linux/arm64
           sarif-file: scout-results.sarif
 
       - name: Upload Docker Scout SARIF
@@ -165,6 +167,7 @@ jobs:
           image-ref: ${{ needs.build.outputs['image-ref'] }}
           format: json
           output: trivy-results.json
+          args: --platform linux/arm64
 
       - name: Summarise vulnerabilities
         run: |
@@ -204,19 +207,19 @@ jobs:
           mkdir -p deployment-package/k8s
           cp -r part1-docker-k8s/k8s/*.yaml deployment-package/k8s/
           python3 - <<'PY'
-          import os
-          from pathlib import Path
+import os
+from pathlib import Path
 
-          path = Path('deployment-package/k8s/deployment.yaml')
-          image_ref = os.environ['IMAGE_REFERENCE']
-          lines = path.read_text().splitlines()
-          with path.open('w') as fh:
-              for line in lines:
-                  if line.strip().startswith('image: glinsky/devsecops-multilang'):
-                      fh.write('        image: ' + image_ref + '\n')
-                  else:
-                      fh.write(line + '\n')
-          PY
+path = Path('deployment-package/k8s/deployment.yaml')
+image_ref = os.environ['IMAGE_REFERENCE']
+lines = path.read_text().splitlines()
+with path.open('w') as fh:
+    for line in lines:
+        if line.strip().startswith('image: glinsky/devsecops-multilang'):
+            fh.write('        image: ' + image_ref + '\n')
+        else:
+            fh.write(line + '\n')
+PY
           printf "Image (tag): %s\nImage (digest): %s\nCommit: %s\nBuild Date: %s\n" \
             "$IMAGE_TAG" "$IMAGE_REFERENCE" "$GITHUB_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             > deployment-package/deployment-info.txt
