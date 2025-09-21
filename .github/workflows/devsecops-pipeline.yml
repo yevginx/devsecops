@@ -3,10 +3,14 @@ name: DevSecOps Pipeline
 on:
   push:
     branches: [ main, develop ]
-    paths: [ 'part1-docker-k8s/**' ]
+    paths:
+      - 'part1-docker-k8s/**'
+      - '.github/workflows/devsecops-pipeline.yml'
   pull_request:
     branches: [ main ]
-    paths: [ 'part1-docker-k8s/**' ]
+    paths:
+      - 'part1-docker-k8s/**'
+      - '.github/workflows/devsecops-pipeline.yml'
 
 permissions:
   contents: read

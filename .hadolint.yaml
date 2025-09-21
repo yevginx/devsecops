@@ -1,0 +1,3 @@
+ignored:
+  - DL3008  # apt-get install package pinning not feasible for this assessment
+  - DL3015  # pip installs without version pinning are documented elsewhere
