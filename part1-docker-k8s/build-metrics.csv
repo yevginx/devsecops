@@ -1,0 +1,4 @@
+timestamp,image_tag,build_duration_seconds,image_size
+2025-09-20T18:13:00Z,v1.2.0,853,2.32GB
+2025-09-20T18:17:00Z,v1.2.0-cached,3,2.32GB
+2025-09-21T02:58:55Z,v1.2.0,5,2.32GB

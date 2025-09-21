@@ -1,8 +1,8 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: devsecops-eval
+  name: devsecops
   labels:
-    name: devsecops-eval
+    name: devsecops
     purpose: evaluation
     security.policy: restricted

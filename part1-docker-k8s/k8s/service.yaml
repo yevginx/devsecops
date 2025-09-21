@@ -2,7 +2,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: multilang-dev-service
-  namespace: devsecops-eval
+  namespace: devsecops
   labels:
     app: multilang-dev-env
     component: development-environment
@@ -11,20 +11,13 @@ metadata:
     prometheus.io/port: "8080"
     prometheus.io/path: "/metrics"
 spec:
-  type: ClusterIP
+  type: NodePort
   ports:
   - name: http
     port: 8080
     targetPort: 8080
     protocol: TCP
-  - name: jupyter
-    port: 8888
-    targetPort: 8888
-    protocol: TCP
-  - name: ssh
-    port: 22
-    targetPort: 22
-    protocol: TCP
+    nodePort: 30080
   selector:
     app: multilang-dev-env
   sessionAffinity: ClientIP

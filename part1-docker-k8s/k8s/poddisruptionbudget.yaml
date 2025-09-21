@@ -2,7 +2,7 @@ apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: multilang-dev-pdb
-  namespace: devsecops-eval
+  namespace: devsecops
   labels:
     app: multilang-dev-env
     component: development-environment

@@ -2,10 +2,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: multilang-dev-env
-  namespace: devsecops-eval
+  namespace: devsecops
   labels:
     app: multilang-dev-env
-    version: v1.0.0
+    version: v1.2.0
     component: development-environment
 spec:
   replicas: 2
@@ -21,7 +21,7 @@ spec:
     metadata:
       labels:
         app: multilang-dev-env
-        version: v1.0.0
+        version: v1.2.0
         component: development-environment
       annotations:
         prometheus.io/scrape: "true"
@@ -37,8 +37,11 @@ spec:
           type: RuntimeDefault
       containers:
       - name: multilang-container
-        image: evgenyglinsky/devsecops-multilang:v1.0.0
-        imagePullPolicy: Always
+        image: glinsky/devsecops-multilang:v1.2.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: http
         
         # Security context for container
         securityContext:
@@ -77,41 +80,33 @@ spec:
             fieldRef:
               fieldPath: spec.nodeName
         
-        # Liveness probe
+        # Liveness/Readiness probes
         livenessProbe:
-          exec:
-            command:
-            - /bin/bash
-            - -c
-            - "python3 -c 'print(\"Python 3 OK\")' && python2 -c 'print(\"Python 2 OK\")' && R --slave -e 'cat(\"R OK\")'"
-          initialDelaySeconds: 30
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 20
           periodSeconds: 30
-          timeoutSeconds: 10
-          failureThreshold: 3
-        
-        # Readiness probe
-        readinessProbe:
-          exec:
-            command:
-            - /bin/bash
-            - -c
-            - "python3 -c 'import sys; print(\"Ready\")'"
-          initialDelaySeconds: 10
-          periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 3
-        
-        # Startup probe
+
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+
         startupProbe:
-          exec:
-            command:
-            - /bin/bash
-            - -c
-            - "python3 -c 'print(\"Starting\")'"
+          httpGet:
+            path: /
+            port: 8080
           initialDelaySeconds: 5
           periodSeconds: 5
           timeoutSeconds: 3
-          failureThreshold: 10
+          failureThreshold: 20
         
         # Volume mounts
         volumeMounts:
@@ -120,9 +115,13 @@ spec:
         - name: tmp
           mountPath: /tmp
         
-        # Command to keep pod running
-        command: ["/bin/bash"]
-        args: ["-c", "while true; do sleep 30; done"]
+        # Override CMD to expose an HTTP endpoint and keep the pod running
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          set -e
+          python3 -m http.server 8080 --bind 0.0.0.0 &
+          while true; do sleep 30; done
       
       # Volumes
       volumes:
@@ -135,11 +134,19 @@ spec:
       
       # Pod disruption budget considerations
       terminationGracePeriodSeconds: 30
-      
-      # Node selection (optional)
-      nodeSelector:
-        kubernetes.io/arch: amd64
-      
+
+      # Prefer scheduling onto architectures supported by the image
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/arch
+                operator: In
+                values:
+                - amd64
+                - arm64
+
       # Tolerations for node taints (if needed)
       tolerations:
       - key: "node.kubernetes.io/not-ready"

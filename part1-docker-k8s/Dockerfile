@@ -73,6 +73,9 @@ RUN python3 -m pip install --no-cache-dir -r requirements-python3.txt
 # Install R packages
 RUN Rscript -e "install.packages(readLines('requirements-r.txt'), repos='https://cran.rstudio.com/')"
 
+# Copy web application (optional - comment out for basic version)
+# COPY app.py /app/
+
 # Create non-root user for security
 RUN useradd -m -s /bin/bash devuser && \
     chown -R devuser:devuser /app
@@ -81,7 +84,7 @@ USER devuser
 
 # Set environment variables
 ENV PATH="/home/devuser/.local/bin:$PATH"
-ENV PYTHONPATH="/app:$PYTHONPATH"
+ENV PYTHONPATH="/app"
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
@@ -89,5 +92,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
         python2 -c "import sys; print('Python 2:', sys.version)" && \
         R --version
 
-# Default command to keep container running
-CMD ["tail", "-f", "/dev/null"]
+# No default CMD - will be overridden by Kubernetes deployment
