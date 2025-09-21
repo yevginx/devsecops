@@ -33,8 +33,10 @@ jobs:
         uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: part1-docker-k8s/Dockerfile
+          config: .hadolint.yaml
           format: sarif
           output-file: hadolint-results.sarif
+          failure-threshold: error
 
       - name: Upload Hadolint SARIF
         if: always()
@@ -201,18 +203,18 @@ jobs:
           mkdir -p deployment-package/k8s
           cp -r part1-docker-k8s/k8s/*.yaml deployment-package/k8s/
           python3 - <<'PY'
-            import os
-            from pathlib import Path
+          import os
+          from pathlib import Path
 
-            deployment = Path('deployment-package/k8s/deployment.yaml')
-            image_ref = os.environ['IMAGE_REFERENCE']
-            lines = deployment.read_text().splitlines()
-            with deployment.open('w') as fh:
-                for line in lines:
-                    if line.strip().startswith('image: glinsky/devsecops-multilang'):
-                        fh.write('        image: ' + image_ref + '\n')
-                    else:
-                        fh.write(line + '\n')
+          path = Path('deployment-package/k8s/deployment.yaml')
+          image_ref = os.environ['IMAGE_REFERENCE']
+          lines = path.read_text().splitlines()
+          with path.open('w') as fh:
+              for line in lines:
+                  if line.strip().startswith('image: glinsky/devsecops-multilang'):
+                      fh.write('        image: ' + image_ref + '\n')
+                  else:
+                      fh.write(line + '\n')
           PY
           printf "Image (tag): %s\nImage (digest): %s\nCommit: %s\nBuild Date: %s\n" \
             "$IMAGE_TAG" "$IMAGE_REFERENCE" "$GITHUB_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
