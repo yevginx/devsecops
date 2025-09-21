@@ -209,7 +209,7 @@ jobs:
                         fh.write('        image: ' + image_ref + '\n')
                     else:
                         fh.write(line + '\n')
-PY
+          PY
           printf "Image (tag): %s\nImage (digest): %s\nCommit: %s\nBuild Date: %s\n" \
             "$IMAGE_TAG" "$IMAGE_REFERENCE" "$GITHUB_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             > deployment-package/deployment-info.txt
