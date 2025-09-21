@@ -115,11 +115,13 @@ jobs:
       - name: Capture image reference
         id: refs
         run: |
-          if [ -z "${{ steps.build.outputs.digest }}" ]; then
-            echo "image_ref=${{ env.REGISTRY }}/${{ env.DOCKER_IMAGE }}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          if [ -n "${{ steps.build.outputs.digest }}" ]; then
+            IMAGE_REF="${{ env.REGISTRY }}/${{ env.DOCKER_IMAGE }}@${{ steps.build.outputs.digest }}"
           else
-            echo "image_ref=${{ env.REGISTRY }}/${{ env.DOCKER_IMAGE }}@${{ steps.build.outputs.digest }}" >> "$GITHUB_OUTPUT"
+            IMAGE_REF="${{ env.REGISTRY }}/${{ env.DOCKER_IMAGE }}:${{ steps.version.outputs.tag }}"
           fi
+          echo "Using image reference: $IMAGE_REF"
+          echo "image_ref=$IMAGE_REF" >> "$GITHUB_OUTPUT"
 
       - name: Trivy vulnerability scan (SARIF)
         if: github.event_name != 'pull_request'
@@ -159,6 +161,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Debug image reference
+        run: |
+          echo "Image reference from build job: ${{ needs.build.outputs['image-ref'] }}"
 
       - name: Trivy vulnerability scan (JSON)
         uses: aquasecurity/trivy-action@master
