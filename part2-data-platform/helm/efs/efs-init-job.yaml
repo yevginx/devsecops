@@ -1,0 +1,27 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: efs-directory-setup
+  namespace: jupyterhub
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: efs-directory-creator
+          image: alpine:latest
+          command:
+            - "/bin/sh"
+            - "-c"
+            - |
+              echo "Creating EFS directories...";
+              mkdir -p /data/home/data-scientist;
+              chown 1000:100 /data/home/data-scientist;
+              echo "Directory setup complete.";
+          volumeMounts:
+            - name: efs-storage
+              mountPath: /data
+      volumes:
+        - name: efs-storage
+          persistentVolumeClaim:
+            claimName: efs-persist-shared

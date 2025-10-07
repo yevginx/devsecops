@@ -1,0 +1,144 @@
+# Usage Tracking System for JupyterHub
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: usage-tracker-config
+  namespace: jupyterhub
+data:
+  tracker.py: |
+    #!/usr/bin/env python3
+    """
+    JupyterHub Usage Tracker
+    Collects and stores usage metrics
+    """
+    import sqlite3
+    import json
+    import time
+    from kubernetes import client, config
+    from datetime import datetime
+    
+    # Initialize database
+    def init_db():
+        conn = sqlite3.connect('/data/usage.db')
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS usage_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp DATETIME,
+                username TEXT,
+                pod_name TEXT,
+                image TEXT,
+                cpu_request TEXT,
+                memory_request TEXT,
+                cpu_usage REAL,
+                memory_usage REAL,
+                status TEXT,
+                duration_minutes INTEGER
+            )
+        ''')
+        conn.commit()
+        return conn
+    
+    def collect_metrics():
+        """Collect current usage metrics"""
+        config.load_incluster_config()
+        v1 = client.CoreV1Api()
+        
+        pods = v1.list_namespaced_pod(
+            namespace="jupyterhub",
+            label_selector="component=singleuser-server"
+        )
+        
+        metrics = []
+        for pod in pods.items:
+            if pod.status.phase == "Running":
+                metrics.append({
+                    'timestamp': datetime.now(),
+                    'username': pod.metadata.labels.get('hub.jupyter.org/username', 'unknown'),
+                    'pod_name': pod.metadata.name,
+                    'image': pod.spec.containers[0].image,
+                    'cpu_request': pod.spec.containers[0].resources.requests.get('cpu', '0'),
+                    'memory_request': pod.spec.containers[0].resources.requests.get('memory', '0'),
+                    'status': pod.status.phase
+                })
+        
+        return metrics
+    
+    def store_metrics(conn, metrics):
+        """Store metrics in database"""
+        cursor = conn.cursor()
+        for metric in metrics:
+            cursor.execute('''
+                INSERT INTO usage_logs 
+                (timestamp, username, pod_name, image, cpu_request, memory_request, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                metric['timestamp'],
+                metric['username'],
+                metric['pod_name'],
+                metric['image'],
+                metric['cpu_request'],
+                metric['memory_request'],
+                metric['status']
+            ))
+        conn.commit()
+    
+    if __name__ == "__main__":
+        conn = init_db()
+        while True:
+            metrics = collect_metrics()
+            store_metrics(conn, metrics)
+            print(f"Stored {len(metrics)} usage records at {datetime.now()}")
+            time.sleep(60)  # Collect every minute
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: usage-tracker
+  namespace: jupyterhub
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: usage-tracker
+  template:
+    metadata:
+      labels:
+        app: usage-tracker
+    spec:
+      serviceAccountName: jupyter-monitor
+      containers:
+      - name: tracker
+        image: python:3.11-slim
+        command:
+        - /bin/bash
+        - -c
+        - |
+          pip install kubernetes
+          python /scripts/tracker.py
+        volumeMounts:
+        - name: scripts
+          mountPath: /scripts
+        - name: data
+          mountPath: /data
+      volumes:
+      - name: scripts
+        configMap:
+          name: usage-tracker-config
+      - name: data
+        persistentVolumeClaim:
+          claimName: usage-data
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: usage-data
+  namespace: jupyterhub
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi

@@ -1,0 +1,150 @@
+prometheus:
+  prometheusSpec:
+    resources:
+      requests:
+        memory: 4Gi
+        cpu: 2
+    retention: 5h
+    scrapeInterval: 30s
+    evaluationInterval: 30s
+    scrapeTimeout: 10s
+    storageSpec:
+      volumeClaimTemplate:
+        metadata:
+          name: data
+        spec:
+          storageClassName: gp3
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 100Gi
+    additionalScrapeConfigs:
+      - job_name: kubecost
+        honor_labels: true
+        scrape_interval: 1m
+        scrape_timeout: 10s
+        metrics_path: /metrics
+        scheme: http
+        dns_sd_configs:
+          - names:
+              - kubecost-cost-analyzer.kubecost.svc
+            type: 'A'
+            port: 9003
+      - job_name: jupyterhub
+        honor_labels: true
+        scrape_interval: 1m
+        scrape_timeout: 10s
+        metrics_path: /hub/metrics
+        scheme: http
+        dns_sd_configs:
+          - names:
+              - hub.jupyterhub.svc
+            type: 'A'
+            port: 8081
+      - job_name: gpu-metrics
+        scrape_interval: 1m
+        metrics_path: /metrics
+        scheme: http
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names:
+                - gpu-operator
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            action: replace
+            target_label: kubernetes_node
+    additionalPrometheusRulesMap:
+      jupyterhub-resource-rules:
+        groups:
+          - name: jupyterhub-resource-recording
+            interval: 1m
+            rules:
+              - record: jupyterhub:namespace_cpu_usage:sum_rate5m
+                expr: sum(rate(container_cpu_usage_seconds_total{namespace="jupyterhub", container!="", image!=""}[5m]))
+              - record: jupyterhub:namespace_memory_working_set_bytes:sum
+                expr: sum(container_memory_working_set_bytes{namespace="jupyterhub", container!="", image!=""})
+              - record: jupyterhub:pod_cpu_request_utilization:ratio
+                expr: |
+                  sum by (pod) (rate(container_cpu_usage_seconds_total{namespace="jupyterhub", container!="", image!=""}[5m]))
+                  /
+                  clamp_min(sum by (pod) (kube_pod_container_resource_requests{namespace="jupyterhub", resource="cpu"}), 0.001)
+              - record: jupyterhub:pod_memory_request_utilization:ratio
+                expr: |
+                  sum by (pod) (container_memory_working_set_bytes{namespace="jupyterhub", container!="", image!=""})
+                  /
+                  clamp_min(sum by (pod) (kube_pod_container_resource_requests{namespace="jupyterhub", resource="memory"}), 1)
+          - name: jupyterhub-utilization-alerts
+            interval: 1m
+            rules:
+              - alert: JupyterHubUserUnderutilized
+                expr: |
+                  (jupyterhub:pod_cpu_request_utilization:ratio < 0.1)
+                  and on (pod)
+                  kube_pod_status_phase{namespace="jupyterhub", phase="Running"} == 1
+                for: 30m
+                labels:
+                  severity: warning
+                annotations:
+                  summary: "Notebook $${pod} is consuming <10% of requested CPU"
+                  description: |
+                    Consider downsizing or stopping the notebook. Requested CPU is higher than usage for 30m.
+              - alert: JupyterHubUserIdle30m
+                expr: |
+                  sum by (pod) (rate(container_cpu_usage_seconds_total{namespace="jupyterhub", container!="", image!=""}[15m])) < 0.001
+                  and on (pod)
+                  kube_pod_status_phase{namespace="jupyterhub", phase="Running"} == 1
+                for: 30m
+                labels:
+                  severity: info
+                annotations:
+                  summary: "Notebook $${pod} has been idle for 30 minutes"
+                  description: |
+                    Idle pods are eligible for culling and node scale-down to save cost.
+              - alert: JupyterHubUserOOMKilled
+                expr: increase(kube_pod_container_status_last_terminated_reason{namespace="jupyterhub", reason="OOMKilled"}[15m]) > 0
+                for: 0m
+                labels:
+                  severity: critical
+                annotations:
+                  summary: "Notebook $${pod} encountered an OOMKilled event"
+                  description: |
+                    User pod was terminated by the kernel for out-of-memory. Recommend moving to a larger memory profile.
+%{ if sns_topic_arn != "" ~}
+alertmanager:
+  enabled: true
+  config:
+    route:
+      receiver: sns
+      repeat_interval: 2h
+    receivers:
+      - name: sns
+        sns_configs:
+          - topic_arn: ${sns_topic_arn}
+            subject: "JupyterHub monitoring alert"
+            sigv4:
+              region: ${region}
+%{ else ~}
+alertmanager:
+  enabled: false
+%{ endif ~}
+
+grafana:
+  enabled: true
+  defaultDashboardsEnabled: true
+  resources:
+    requests:
+      memory: 4Gi
+      cpu: 2
+  sidecar:
+    datasources:
+      alertmanager:
+        enabled: false
+    dashboards:
+      enabled: true
+
+kube-state-metrics:
+  metricLabelsAllowlist:
+    - pods=[app,component,hub.jupyter.org/username]
+    - nodes=[*]

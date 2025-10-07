@@ -1,0 +1,127 @@
+# Monitoring and Alerting Setup for JupyterHub
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jupyter-monitoring-config
+  namespace: jupyterhub
+data:
+  idle-checker.py: |
+    #!/usr/bin/env python3
+    """
+    JupyterHub Idle Resource Monitor
+    Checks for idle servers and sends notifications
+    """
+    import requests
+    import json
+    import time
+    from kubernetes import client, config
+    from datetime import datetime, timedelta
+    
+    # Load Kubernetes config
+    config.load_incluster_config()
+    v1 = client.CoreV1Api()
+    
+    def check_idle_servers():
+        """Check for idle JupyterHub servers"""
+        # Get all user pods
+        pods = v1.list_namespaced_pod(
+            namespace="jupyterhub",
+            label_selector="component=singleuser-server"
+        )
+        
+        idle_servers = []
+        for pod in pods.items:
+            # Check if pod has been running without activity
+            start_time = pod.status.start_time
+            if start_time:
+                idle_time = datetime.now(start_time.tzinfo) - start_time
+                if idle_time > timedelta(hours=2):  # 2 hour idle threshold
+                    idle_servers.append({
+                        'name': pod.metadata.name,
+                        'user': pod.metadata.labels.get('hub.jupyter.org/username', 'unknown'),
+                        'idle_hours': idle_time.total_seconds() / 3600,
+                        'cpu_request': pod.spec.containers[0].resources.requests.get('cpu', '0'),
+                        'memory_request': pod.spec.containers[0].resources.requests.get('memory', '0')
+                    })
+        
+        return idle_servers
+    
+    def send_notification(idle_servers):
+        """Send notification about idle servers"""
+        if idle_servers:
+            message = f"🚨 Found {len(idle_servers)} idle JupyterHub servers:\n"
+            for server in idle_servers:
+                message += f"- User: {server['user']}, Idle: {server['idle_hours']:.1f}h, Resources: {server['cpu_request']} CPU, {server['memory_request']} RAM\n"
+            
+            print(message)  # In production, send to Slack/email/etc
+    
+    if __name__ == "__main__":
+        while True:
+            idle_servers = check_idle_servers()
+            send_notification(idle_servers)
+            time.sleep(300)  # Check every 5 minutes
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: jupyter-idle-monitor
+  namespace: jupyterhub
+spec:
+  schedule: "*/10 * * * *"  # Every 10 minutes
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: jupyter-monitor
+          containers:
+          - name: idle-monitor
+            image: python:3.11-slim
+            command:
+            - /bin/bash
+            - -c
+            - |
+              pip install kubernetes requests
+              python /scripts/idle-checker.py
+            volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+          volumes:
+          - name: scripts
+            configMap:
+              name: jupyter-monitoring-config
+          restartPolicy: OnFailure
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jupyter-monitor
+  namespace: jupyterhub
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: jupyter-monitor
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["metrics.k8s.io"]
+  resources: ["pods", "nodes"]
+  verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: jupyter-monitor
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: jupyter-monitor
+subjects:
+- kind: ServiceAccount
+  name: jupyter-monitor
+  namespace: jupyterhub
