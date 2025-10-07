@@ -1,0 +1,633 @@
+
+# Demo authentication
+hub:
+  config:
+    JupyterHub:
+      authenticator_class: dummy
+    DummyAuthenticator:
+      password: ""
+  extraConfig:
+    myConfig: |
+      c.KubeSpawner.start_timeout = 1200
+
+# AWS Cognito authentication
+# hub:
+#   db:
+#     pvc:
+#       storage: 50Gi
+#       storageClassName: gp3
+#   authenticatePrometheus: false
+#   command: ["sh", "-c", "pip install boto3 && jupyterhub --config /usr/local/etc/jupyterhub/jupyterhub_config.py"]
+#   config:
+#     GenericOAuthenticator:
+#       oauth_callback_url: ${jupyterdomain}
+#       client_id: ${client_id}
+#       client_secret: ${client_secret}
+#       authorize_url: ${authorize_url}
+#       token_url: ${token_url}
+#       userdata_url: ${userdata_url}
+#       scope:
+#         - openid
+#         - email
+#       username_key: "username"
+#       login_service : "AWS Cognito"
+#       userdata_method: "POST"
+#     JupyterHub:
+#       authenticator_class: generic-oauth
+#   extraConfig:
+#     jupyterhub_config.py: |-
+#       c.KubeSpawner.start_timeout = 1200
+#       c.Authenticator.enable_auth_state = True
+
+#     cognito_config.py: |-
+#       import boto3
+#       def auth_state_hook(spawner, auth_state):
+#         client_idp = boto3.client('cognito-idp', region_name="${region}")
+#         auth_response = client_idp.initiate_auth(
+#           AuthFlow="REFRESH_TOKEN_AUTH",
+#           AuthParameters={
+#             "REFRESH_TOKEN": auth_state['refresh_token'],
+#             "SECRET_HASH": "${client_secret}"
+#           },
+#           ClientId="${client_id}"
+#         )
+#         id_token = auth_response["AuthenticationResult"]["IdToken"]
+#         client_identity = boto3.client("cognito-identity", region_name="${region}")
+#         identity_response = client_identity.get_id(
+#           IdentityPoolId="${identity_pool_id}",
+#           Logins={
+#             f"cognito-idp.${region}.amazonaws.com/${user_pool_id}": id_token
+#           }
+#         )
+#         identity_id = identity_response['IdentityId']
+#         credentials = client_identity.get_credentials_for_identity(
+#           IdentityId=identity_id,
+#           Logins={
+#             f"cognito-idp.${region}.amazonaws.com/${user_pool_id}": id_token
+#           }
+#         )
+#         key = credentials["Credentials"]["AccessKeyId"]
+#         secret = credentials["Credentials"]["SecretKey"]
+#         token = credentials["Credentials"]["SessionToken"]
+#         spawner.environment['AWS_ACCESS_KEY_ID'] = key
+#         spawner.environment['AWS_SECRET_ACCESS_KEY'] = secret
+#         spawner.environment['AWS_SESSION_TOKEN'] = token
+
+#       c.Spawner.auth_state_hook = auth_state_hook
+
+# Oauth authentication
+  config:
+    GenericOAuthenticator:
+      oauth_callback_url: ${jupyterdomain}
+      client_id: ${client_id}
+      client_secret: ${client_secret}
+      authorize_url: ${authorize_url}
+      token_url: ${token_url}
+      userdata_url: ${userdata_url}
+      scope:
+        - openid
+        - profile
+      username_key: "${username_key}"
+      login_service: "oauth"
+      allow_all: true # Allows all oauth authenticated users to use Jupyterhub. For finer grained control, you can use `allowed_users`: https://jupyterhub.readthedocs.io/en/stable/tutorial/getting-started/authenticators-users-basics.html#deciding-who-is-allowed
+    JupyterHub:
+      authenticator_class: generic-oauth
+
+cull:
+  enabled: true
+  users: true
+  removeNamedServers: true
+  timeout: 3600
+  every: 300
+
+proxy:
+  https:
+    enabled: true
+    type: offload
+  service:
+    type: LoadBalancer
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-ssl-cert: ${ssl_cert_arn}
+      service.beta.kubernetes.io/aws-load-balancer-ssl-ports: "https"
+      service.beta.kubernetes.io/aws-load-balancer-backend-protocol: "tcp"
+      service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout: "3600"
+      service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+      service.beta.kubernetes.io/aws-load-balancer-scheme: internal # works with VPN module for security 
+      service.beta.kubernetes.io/aws-load-balancer-type: external
+      service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: 'true'
+      service.beta.kubernetes.io/aws-load-balancer-ip-address-type: ipv4
+
+singleuser:
+  startTimeout: 1200
+  defaultUrl: /lab
+  profileList:
+    - display_name: General Purpose (CPU)
+      description: "Multi-runtime notebooks on x86 nodes managed by Karpenter"
+      profile_options:
+        base_image:
+          display_name: Base Image
+          choices:
+            minimal:
+              display_name: "Minimal Python 3.11"
+              description: "Lightweight Python 3 environment for basic development"
+              kubespawner_override:
+                image: quay.io/jupyter/minimal-notebook:2024-03-14
+                lifecycle_hooks:
+                  postStart:
+                    exec:
+                      command:
+                        - /bin/bash
+                        - -lc
+                        - |
+                          if [[ -n "$${JUPYTER_PRELOAD_PIP_PACKAGES:-}" ]]; then
+                            echo "Installing pip packages: $${JUPYTER_PRELOAD_PIP_PACKAGES}"
+                            pip install --quiet --no-cache-dir $${JUPYTER_PRELOAD_PIP_PACKAGES}
+                          fi
+            scipy:
+              display_name: "SciPy Stack (Python 3.11)"
+              description: "Python with NumPy, SciPy, Pandas, Matplotlib"
+              default: true
+              kubespawner_override:
+                image: quay.io/jupyter/scipy-notebook:2024-03-14
+                lifecycle_hooks:
+                  postStart:
+                    exec:
+                      command:
+                        - /bin/bash
+                        - -lc
+                        - |
+                          if [[ -n "$${JUPYTER_PRELOAD_PIP_PACKAGES:-}" ]]; then
+                            echo "Installing pip packages: $${JUPYTER_PRELOAD_PIP_PACKAGES}"
+                            pip install --quiet --no-cache-dir $${JUPYTER_PRELOAD_PIP_PACKAGES}
+                          fi
+            datascience:
+              display_name: "Data Science (Python 3.11 + R + Julia)"
+              description: "Complete data science stack with Python, R, and Julia"
+              kubespawner_override:
+                image: quay.io/jupyter/datascience-notebook:2024-03-14
+                lifecycle_hooks:
+                  postStart:
+                    exec:
+                      command:
+                        - /bin/bash
+                        - -lc
+                        - |
+                          if [[ -n "$${JUPYTER_PRELOAD_PIP_PACKAGES:-}" ]]; then
+                            echo "Installing pip packages: $${JUPYTER_PRELOAD_PIP_PACKAGES}"
+                            pip install --quiet --no-cache-dir $${JUPYTER_PRELOAD_PIP_PACKAGES}
+                          fi
+            r-notebook:
+              display_name: "R Environment"
+              description: "R with popular packages and IRkernel"
+              kubespawner_override:
+                image: quay.io/jupyter/r-notebook:2024-03-14
+                lifecycle_hooks:
+                  postStart:
+                    exec:
+                      command:
+                        - /bin/bash
+                        - -lc
+                        - |
+                          if [[ -n "$${JUPYTER_PRELOAD_PIP_PACKAGES:-}" ]]; then
+                            echo "Installing pip packages: $${JUPYTER_PRELOAD_PIP_PACKAGES}"
+                            pip install --quiet --no-cache-dir $${JUPYTER_PRELOAD_PIP_PACKAGES}
+                          fi
+            tensorflow:
+              display_name: "TensorFlow (Python 3.11)"
+              description: "Python with TensorFlow and ML libraries"
+              kubespawner_override:
+                image: quay.io/jupyter/tensorflow-notebook:2024-03-14
+                lifecycle_hooks:
+                  postStart:
+                    exec:
+                      command:
+                        - /bin/bash
+                        - -lc
+                        - |
+                          if [[ -n "$${JUPYTER_PRELOAD_PIP_PACKAGES:-}" ]]; then
+                            echo "Installing pip packages: $${JUPYTER_PRELOAD_PIP_PACKAGES}"
+                            pip install --quiet --no-cache-dir $${JUPYTER_PRELOAD_PIP_PACKAGES}
+                          fi
+            pytorch:
+              display_name: "PyTorch (Python 3.11)"
+              description: "Python with PyTorch and deep learning libraries"
+              kubespawner_override:
+                image: quay.io/jupyter/pytorch-notebook:2024-03-14
+                lifecycle_hooks:
+                  postStart:
+                    exec:
+                      command:
+                        - /bin/bash
+                        - -lc
+                        - |
+                          if [[ -n "$${JUPYTER_PRELOAD_PIP_PACKAGES:-}" ]]; then
+                            echo "Installing pip packages: $${JUPYTER_PRELOAD_PIP_PACKAGES}"
+                            pip install --quiet --no-cache-dir $${JUPYTER_PRELOAD_PIP_PACKAGES}
+                          fi
+        package_bundle:
+          display_name: Extra Packages
+          description: "Optional curated package bundles installed at spawn"
+          choices:
+            minimal:
+              display_name: "Minimal"
+              default: true
+              kubespawner_override:
+                environment:
+                  JUPYTER_PRELOAD_PIP_PACKAGES: ""
+            data_science:
+              display_name: "Data Science"
+              kubespawner_override:
+                environment:
+                  JUPYTER_PRELOAD_PIP_PACKAGES: "pandas==2.1.4 numpy==1.26.4 scikit-learn==1.4.1 seaborn==0.13.2"
+            mlops:
+              display_name: "MLOps"
+              kubespawner_override:
+                environment:
+                  JUPYTER_PRELOAD_PIP_PACKAGES: "boto3==1.34.45 sagemaker==2.196.1 great-expectations==0.18.12 mlflow==2.11.1"
+            geospatial:
+              display_name: "Geospatial"
+              kubespawner_override:
+                environment:
+                  JUPYTER_PRELOAD_CONDA_PACKAGES: "geopandas=0.14.3 rasterio=1.3.9"
+            web_dev:
+              display_name: "Web Development"
+              kubespawner_override:
+                environment:
+                  JUPYTER_PRELOAD_PIP_PACKAGES: "flask==3.0.0 fastapi==0.104.1 requests==2.31.0 beautifulsoup4==4.12.2"
+            devops:
+              display_name: "DevOps & Cloud"
+              kubespawner_override:
+                environment:
+                  JUPYTER_PRELOAD_PIP_PACKAGES: "boto3==1.34.45 kubernetes==28.1.0 docker==6.1.3 terraform-compliance==1.3.44"
+            finance:
+              display_name: "Financial Analysis"
+              kubespawner_override:
+                environment:
+                  JUPYTER_PRELOAD_PIP_PACKAGES: "yfinance==0.2.18 quantlib==1.32 pandas-datareader==0.10.0"
+        size:
+          display_name: Resources
+          choices:
+            small:
+              display_name: "Small (2 CPU / 8Gi RAM)"
+              default: true
+              kubespawner_override:
+                cpu_guarantee: 2
+                mem_guarantee: 8G
+                cpu_limit: 4
+                mem_limit: 12G
+            medium:
+              display_name: "Medium (4 CPU / 16Gi RAM)"
+              kubespawner_override:
+                cpu_guarantee: 4
+                mem_guarantee: 16G
+                cpu_limit: 6
+                mem_limit: 24G
+            large:
+              display_name: "Large (8 CPU / 32Gi RAM)"
+              kubespawner_override:
+                cpu_guarantee: 8
+                mem_guarantee: 32G
+                cpu_limit: 12
+                mem_limit: 48G
+            gpu:
+              display_name: "GPU (4 CPU / 16Gi RAM / 1 GPU)"
+              kubespawner_override:
+                cpu_guarantee: 4
+                mem_guarantee: 16G
+                cpu_limit: 6
+                mem_limit: 24G
+                extra_resource_limits:
+                  nvidia.com/gpu: "1"
+                node_selector:
+                  NodePool: gpu
+                  hub.jupyter.org/node-purpose: user
+      kubespawner_override:
+        node_selector:
+          NodePool: default
+          hub.jupyter.org/node-purpose: user
+        tolerations:
+          - key: "hub.jupyter.org/dedicated"
+            operator: "Equal"
+            value: "user"
+            effect: "NoSchedule"
+        cmd: null
+
+    - display_name: Memory Optimized (CPU 256Gi)
+      description: "For analytics workloads requiring 100-250Gi in-memory datasets"
+      profile_options:
+        base_image:
+          display_name: Base Image
+          choices:
+            scipy:
+              display_name: "Jupyter SciPy (Python 3.11)"
+              default: true
+              kubespawner_override:
+                image: quay.io/jupyter/scipy-notebook:2024-03-14
+            spark:
+              display_name: "Jupyter PySpark 3.5.0"
+              kubespawner_override:
+                image: jupyter/pyspark-notebook:spark-3.5.0
+            rstudio:
+              display_name: "Jupyter R Notebooks"
+              kubespawner_override:
+                image: jupyter/r-notebook:2024-03-14
+        package_bundle:
+          display_name: Extra Packages
+          choices:
+            minimal:
+              display_name: "Minimal"
+              default: true
+              kubespawner_override:
+                environment:
+                  JUPYTER_PRELOAD_PIP_PACKAGES: ""
+            in_memory_analytics:
+              display_name: "In-memory Analytics"
+              kubespawner_override:
+                environment:
+                  JUPYTER_PRELOAD_PIP_PACKAGES: "pyarrow==15.0.0 polars==0.20.7 numpy==1.26.4"
+        size:
+          display_name: Resources
+          choices:
+            xlarge:
+              display_name: "r6i.16xlarge (64 CPU / 256Gi RAM)"
+              default: true
+              kubespawner_override:
+                cpu_guarantee: 32
+                cpu_limit: 48
+                mem_guarantee: 256G
+                mem_limit: 300G
+            xxlarge:
+              display_name: "r6i.32xlarge (128 CPU / 512Gi RAM)"
+              kubespawner_override:
+                cpu_guarantee: 64
+                cpu_limit: 96
+                mem_guarantee: 512G
+                mem_limit: 580G
+      kubespawner_override:
+        node_selector:
+          NodePool: memory-optimized
+          hub.jupyter.org/node-purpose: user
+        tolerations:
+          - key: "hub.jupyter.org/dedicated"
+            operator: "Equal"
+            value: "user"
+            effect: "NoSchedule"
+        cmd: null
+
+    - display_name: GPU - NVIDIA G5 (Time-Slicing)
+      default: true
+      description: "Single GPU notebooks with NVIDIA time-slicing pools"
+      profile_options:
+        image:
+          display_name: Image
+          choices:
+            pytorch:
+              display_name: "PyTorch 2.1 + CUDA 12"
+              default: true
+              kubespawner_override:
+                image: nvcr.io/nvidia/pytorch:23.10-py3
+            tensorflow:
+              display_name: "TensorFlow 2.13 + CUDA 12"
+              kubespawner_override:
+                image: nvcr.io/nvidia/tensorflow:23.10-tf2-py3
+            rapids:
+              display_name: "RAPIDS 23.12"
+              kubespawner_override:
+                image: nvcr.io/nvidia/rapidsai/base:23.12-cuda11.8-py3.10
+        package_bundle:
+          display_name: Extra Packages
+          choices:
+            minimal:
+              display_name: "Minimal"
+              default: true
+              kubespawner_override:
+                environment:
+                  JUPYTER_PRELOAD_PIP_PACKAGES: ""
+            inference:
+              display_name: "Inference"
+              kubespawner_override:
+                environment:
+                  JUPYTER_PRELOAD_PIP_PACKAGES: "torchserve==0.8.2 transformers==4.38.0 accelerate==0.27.2"
+        gpu_size:
+          display_name: GPU Size
+          choices:
+            single:
+              display_name: "1 GPU (8 CPU / 32Gi RAM)"
+              default: true
+              kubespawner_override:
+                cpu_guarantee: 8
+                cpu_limit: 12
+                mem_guarantee: 32G
+                mem_limit: 48G
+                extra_resource_limits:
+                  nvidia.com/gpu: "1"
+            double:
+              display_name: "2 GPUs (16 CPU / 64Gi RAM)"
+              kubespawner_override:
+                cpu_guarantee: 16
+                cpu_limit: 24
+                mem_guarantee: 64G
+                mem_limit: 96G
+                extra_resource_limits:
+                  nvidia.com/gpu: "2"
+      kubespawner_override:
+        node_selector:
+          NodePool: gpu-ts
+          hub.jupyter.org/node-purpose: user
+        tolerations:
+          - key: "hub.jupyter.org/dedicated"
+            operator: "Equal"
+            value: "user"
+            effect: "NoSchedule"
+          - key: "nvidia.com/gpu"
+            operator: "Exists"
+            effect: "NoSchedule"
+        cmd: "start-singleuser.sh"
+    - display_name: GPU - NVIDIA MIG (P4d)
+      description: "GPU MIG slices on P4d instances via Cluster Autoscaler"
+      profile_options:
+        image:
+          display_name: Image
+          choices:
+            pytorch:
+              display_name: "PyTorch CUDA 11.8"
+              default: true
+              kubespawner_override:
+                image: cschranz/gpu-jupyter:v1.6_cuda-11.8_ubuntu-22.04_python-only
+            tensorflow:
+              display_name: "TensorFlow CUDA 11.8"
+              kubespawner_override:
+                image: tensorflow/tensorflow:2.12.0-gpu
+        mig_profile:
+          display_name: MIG Profile
+          choices:
+            one_g:
+              display_name: "1g.5gb"
+              default: true
+              kubespawner_override:
+                extra_resource_guarantees:
+                  nvidia.com/mig-1g.5gb: 1
+            two_g:
+              display_name: "2g.10gb"
+              kubespawner_override:
+                extra_resource_guarantees:
+                  nvidia.com/mig-2g.10gb: 1
+            three_g:
+              display_name: "3g.20gb"
+              kubespawner_override:
+                extra_resource_guarantees:
+                  nvidia.com/mig-3g.20gb: 1
+      kubespawner_override:
+        node_selector:
+          NodePool: gpu-mig
+          hub.jupyter.org/node-purpose: user
+        tolerations:
+          - key: "nvidia.com/gpu"
+            operator: "Exists"
+            effect: "NoSchedule"
+          - key: "hub.jupyter.org/dedicated"
+            operator: "Equal"
+            value: "user"
+            effect: "NoSchedule"
+        cpu_guarantee: 2
+        cpu_limit: 4
+        mem_guarantee: 10G
+        mem_limit: 16G
+        cmd: "start-singleuser.sh"
+    - display_name: Trainium (trn1)
+      description: "Trainium workloads with neuronx libraries"
+      profile_options:
+        image:
+          display_name: Image
+          choices:
+            pytorch1131:
+              display_name: "PyTorch 1.13.1 + torch-neuronx"
+              default: true
+              kubespawner_override:
+                image: public.ecr.aws/data-on-eks/pytorch-neuronx:latest
+            tflow2101:
+              display_name: "Tensorflow 2.10.1 + tensorflow-neuronx"
+              kubespawner_override:
+                image: public.ecr.aws/data-on-eks/tensorflow-neuronx:latest
+      kubespawner_override:
+        node_selector:
+          NodePool: trainium
+          hub.jupyter.org/node-purpose: user
+        tolerations:
+          - key: aws.amazon.com/neuroncore
+            operator: Exists
+            effect: NoSchedule
+          - key: aws.amazon.com/neuron
+            operator: Exists
+            effect: NoSchedule
+          - key: "hub.jupyter.org/dedicated"
+            operator: "Equal"
+            value: "user"
+            effect: "NoSchedule"
+        cpu_guarantee: 2
+        mem_guarantee: 10G
+        cpu_limit: 2
+        mem_limit: 10G
+        extra_resource_limits:
+          aws.amazon.com/neuron: "1"
+        cmd: "start-singleuser.sh"
+    - display_name: Inferentia (inf2)
+      description: "Inferentia workloads for inference accelerators"
+      profile_options:
+        image:
+          display_name: Image
+          choices:
+            pytorch1131:
+              display_name: "PyTorch + torch-neuronx"
+              default: true
+              kubespawner_override:
+                image: public.ecr.aws/data-on-eks/pytorch-neuronx:latest
+            tflow2101:
+              display_name: "Tensorflow + tensorflow-neuronx"
+              kubespawner_override:
+                image: public.ecr.aws/data-on-eks/tensorflow-neuronx:latest
+      kubespawner_override:
+        node_selector:
+          NodePool: inferentia
+          hub.jupyter.org/node-purpose: user
+        tolerations:
+          - key: aws.amazon.com/neuroncore
+            operator: Exists
+            effect: NoSchedule
+          - key: aws.amazon.com/neuron
+            operator: Exists
+            effect: NoSchedule
+          - key: "hub.jupyter.org/dedicated"
+            operator: "Equal"
+            value: "user"
+            effect: "NoSchedule"
+        cpu_guarantee: 20
+        mem_guarantee: 100G
+        cpu_limit: 20
+        mem_limit: 100G
+        extra_resource_limits:
+          aws.amazon.com/neuron: "1"
+        cmd: null
+  serviceAccountName: ${jupyter_single_user_sa_name}
+  allowPrivilegeEscalation: true
+  extraPodConfig: # This is needed for Jovyan user running in every single pod, access the Service Account
+    securityContext:
+      fsGroup: 100
+  extraEnv: # Sudo needed to configure the proper permissions to start the notebook instance
+    GRANT_SUDO: "yes"
+    NOTEBOOK_ARGS: "--allow-root"
+    CHOWN_HOME: "yes"
+    CHOWN_HOME_OPTS: "-R"
+    CHOWN_EXTRA: "/home/shared"
+  uid: 0
+  fsGid: 0
+  cmd: null
+  storage:
+    type: "static"
+    static:
+      pvcName: "efs-persist"
+      subPath: "home/{username}"
+    extraVolumes:
+    - name: jupyterhub-shared
+      persistentVolumeClaim:
+        claimName: efs-persist-shared
+    extraVolumeMounts:
+    - name: jupyterhub-shared
+      mountPath: /home/jovyan/shared
+      readOnly: false
+
+
+  extraEnv:
+    JUPYTER_PRELOAD_PIP_PACKAGES: ""
+    JUPYTER_PRELOAD_CONDA_PACKAGES: ""
+  cmd: null
+
+cull:
+  enabled: true
+  users: true
+  removeNamedServers: true
+  timeout: 3600
+  every: 300
+  concurrency: 5
+  maxAge: 43200
+
+scheduling:
+  userScheduler:
+    enabled: true
+  podPriority:
+    enabled: true
+  userPlaceholder:
+    enabled: false
+    replicas: 1
+  userPods:
+    nodeAffinity:
+      matchNodePurpose: require
+
+prePuller:
+  hook:
+    enabled: false
+  continuous:
+    enabled: false
+
+global:
+  safeToShowValues: false

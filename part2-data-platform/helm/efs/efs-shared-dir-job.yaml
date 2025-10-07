@@ -1,0 +1,26 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: efs-shared-directory-setup
+  namespace: jupyterhub
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: efs-directory-creator
+        image: busybox
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            echo "Creating /shared directory in EFS...";
+            mkdir -p /mnt/efs/shared;
+            chown -R 1000:100 /mnt/efs/shared;
+            echo "Directory setup complete.";
+        volumeMounts:
+        - name: efs-storage
+          mountPath: /mnt/efs
+      volumes:
+      - name: efs-storage
+        persistentVolumeClaim:
+          claimName: efs-persist # We can use either efs-persist or efs-persist-shared as they point to the same EFS root
