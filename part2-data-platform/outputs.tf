@@ -17,3 +17,34 @@ output "transfer_server_dns" {
   description = "Managed Route53 record for the SFTP endpoint"
   value       = var.transfer_hostname
 }
+
+output "vpc_id" {
+  description = "VPC ID for use by nested modules like VPN"
+  value       = module.vpc.vpc_id
+}
+
+output "private_subnet_id" {
+  description = "First private subnet ID for VPN endpoint"
+  value       = module.vpc.private_subnets[0]
+}
+
+output "vpc_cidr" {
+  description = "VPC CIDR block"
+  value       = module.vpc.vpc_cidr_block
+}
+
+output "sftp_pwd_sftp_endpoint" {
+  description = "Hostname of the password-based SFTP endpoint"
+  value       = try(module.sftp_pwd.sftp_endpoint, "")
+}
+
+output "sftp_pwd_sftp_username" {
+  description = "SFTP username for password-based access"
+  value       = try(module.sftp_pwd.sftp_username, "")
+}
+
+output "sftp_pwd_sftp_password" {
+  description = "SFTP password (sensitive)"
+  value       = try(module.sftp_pwd.sftp_password, "")
+  sensitive   = true
+}

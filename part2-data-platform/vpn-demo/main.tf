@@ -1,3 +1,11 @@
+data "terraform_remote_state" "platform" {
+  backend = "local"
+
+  config = {
+    path = "../terraform.tfstate"
+  }
+}
+
 module "vpn_client" {
   source  = "babicamir/vpn-client/aws"
   version = "1.0.1"
@@ -6,10 +14,10 @@ module "vpn_client" {
   project-name      = "data-engineering-platform"
   environment       = "dev"
 
-  # Network information
-  vpc_id            = "vpc-0bc3119c1abb378c8"
-  subnet_id         = "subnet-0c56cd9515cebed1f"
-  client_cidr_block = "10.1.0.0/21"
+  # Network information - dynamically read from parent platform state
+  vpc_id            = data.terraform_remote_state.platform.outputs.vpc_id
+  subnet_id         = data.terraform_remote_state.platform.outputs.private_subnet_id
+  client_cidr_block = "192.168.100.0/22" # VPN client IP pool (must not overlap with VPC CIDR)
 
   # VPN config options
   split_tunnel           = true

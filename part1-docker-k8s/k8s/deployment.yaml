@@ -37,7 +37,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: multilang-container
-        image: glinsky/devsecops-multilang:v1.2.0
+        image: glinsky/devsecops-multilang:v1.2.0-optimized
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8080
