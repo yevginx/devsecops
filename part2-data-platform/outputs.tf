@@ -32,3 +32,19 @@ output "vpc_cidr" {
   description = "VPC CIDR block"
   value       = module.vpc.vpc_cidr_block
 }
+
+output "sftp_pwd_sftp_endpoint" {
+  description = "Hostname of the password-based SFTP endpoint"
+  value       = try(module.sftp_pwd.sftp_endpoint, "")
+}
+
+output "sftp_pwd_sftp_username" {
+  description = "SFTP username for password-based access"
+  value       = try(module.sftp_pwd.sftp_username, "")
+}
+
+output "sftp_pwd_sftp_password" {
+  description = "SFTP password (sensitive)"
+  value       = try(module.sftp_pwd.sftp_password, "")
+  sensitive   = true
+}

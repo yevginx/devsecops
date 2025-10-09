@@ -7,13 +7,13 @@ data "aws_route53_zone" "primary" {
 
 # Creates the CNAME record for the SFTP server (e.g., sftp.your-domain.com)
 resource "aws_route53_record" "sftp" {
-  count = var.domain_name != "" && local.transfer_enabled ? 1 : 0
+  count = var.domain_name != "" ? 1 : 0
 
   zone_id = data.aws_route53_zone.primary[0].zone_id
   name    = "sftp.${var.domain_name}"
   type    = "CNAME"
   ttl     = 300
-  records = [aws_transfer_server.sftp[0].endpoint]
+  records = [module.sftp_pwd.sftp_endpoint]
 }
 
 data "kubernetes_service" "jupyterhub_proxy" {

@@ -8,17 +8,7 @@ notification_sns_topic_arn = "arn:aws:sns:us-west-2:123456789012:jupyterhub-aler
 domain_name = "mlopswish.com"
 
 # AWS Transfer Family (SFTP) configuration
-enable_transfer_server = true
-transfer_allowed_cidrs = [
-  "0.0.0.0/0"
-]
-transfer_users = {
-  "data-scientist" = {
-    public_keys = [
-      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEolIyJLaZHuZLnGSUEvZqckDZZw1Oa9+H/rSFKaqjJ0 evgenyglinskiy@gmail.com"
-    ]
-    uid  = 1000
-    gid  = 100
-    home = "data-scientist"
-  }
-}
+# Legacy Transfer server (key-based) disabled; using password-based module now
+enable_transfer_server = false
+transfer_allowed_cidrs = []
+transfer_users         = {}

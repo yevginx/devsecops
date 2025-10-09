@@ -172,4 +172,15 @@ resource "kubernetes_config_map_v1_data" "aws_auth_roles" {
   depends_on = [
     module.eks_blueprints_addons
   ]
-} 
+}
+
+module "sftp_pwd" {
+  source            = "./sftp-pwd-auth"
+  region            = var.region
+  efs_id            = aws_efs_file_system.efs.id
+  efs_shared_subpath = "/shared"
+  sftp_username     = "data-scientist"
+  tags = {
+    Project = "swish-mlops"
+  }
+}
