@@ -102,12 +102,17 @@ spec:
         redeploy-timestamp: "202509202013"
     spec:
       serviceAccountName: prometheus
+      securityContext:
+        fsGroup: 65534
+        runAsNonRoot: true
+        runAsUser: 65534
       containers:
         - name: prometheus
-          image: prom/prometheus:v2.37.0
+          image: prom/prometheus:v2.54.1
           args:
             - "--config.file=/etc/prometheus/prometheus.yml"
             - "--storage.tsdb.path=/prometheus/"
+            - "--web.enable-lifecycle"
           ports:
             - containerPort: 9090
           volumeMounts:
@@ -170,9 +175,13 @@ spec:
       labels:
         app: grafana
     spec:
+      securityContext:
+        fsGroup: 472
+        runAsNonRoot: true
+        runAsUser: 472
       containers:
         - name: grafana
-          image: grafana/grafana:8.5.2
+          image: grafana/grafana:11.3.0
           ports:
             - containerPort: 3000
           env:

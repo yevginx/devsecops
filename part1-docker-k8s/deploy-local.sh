@@ -9,6 +9,7 @@ set -euo pipefail
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly VERSION_FILE="${SCRIPT_DIR}/VERSION"
 readonly IMAGE_NAME="${IMAGE_NAME:-glinsky/devsecops-multilang}"
+readonly DOCKERFILE="${DOCKERFILE:-Dockerfile.optimized}"
 readonly NAMESPACE="devsecops"
 
 if [[ -z "${IMAGE_TAG:-}" ]]; then
@@ -62,9 +63,9 @@ start_minikube_if_needed() {
 }
 
 build_and_load_image() {
-    echo "INFO: Building Docker image '$IMAGE_NAME:$IMAGE_TAG'..."
+    echo "INFO: Building Docker image '$IMAGE_NAME:$IMAGE_TAG' from '$DOCKERFILE'..."
     # The build context is now '.', referring to the current directory (part1-docker-k8s)
-    docker build -t "$IMAGE_NAME:$IMAGE_TAG" .
+    docker build -t "$IMAGE_NAME:$IMAGE_TAG" -f "$DOCKERFILE" .
 
     echo "INFO: Loading image into Minikube's Docker daemon..."
     minikube image load "$IMAGE_NAME:$IMAGE_TAG"

@@ -9,96 +9,7 @@ hub:
   extraConfig:
     myConfig: |
       c.KubeSpawner.start_timeout = 1200
-
-# AWS Cognito authentication
-# hub:
-#   db:
-#     pvc:
-#       storage: 50Gi
-#       storageClassName: gp3
-#   authenticatePrometheus: false
-#   command: ["sh", "-c", "pip install boto3 && jupyterhub --config /usr/local/etc/jupyterhub/jupyterhub_config.py"]
-#   config:
-#     GenericOAuthenticator:
-#       oauth_callback_url: ${jupyterdomain}
-#       client_id: ${client_id}
-#       client_secret: ${client_secret}
-#       authorize_url: ${authorize_url}
-#       token_url: ${token_url}
-#       userdata_url: ${userdata_url}
-#       scope:
-#         - openid
-#         - email
-#       username_key: "username"
-#       login_service : "AWS Cognito"
-#       userdata_method: "POST"
-#     JupyterHub:
-#       authenticator_class: generic-oauth
-#   extraConfig:
-#     jupyterhub_config.py: |-
-#       c.KubeSpawner.start_timeout = 1200
-#       c.Authenticator.enable_auth_state = True
-
-#     cognito_config.py: |-
-#       import boto3
-#       def auth_state_hook(spawner, auth_state):
-#         client_idp = boto3.client('cognito-idp', region_name="${region}")
-#         auth_response = client_idp.initiate_auth(
-#           AuthFlow="REFRESH_TOKEN_AUTH",
-#           AuthParameters={
-#             "REFRESH_TOKEN": auth_state['refresh_token'],
-#             "SECRET_HASH": "${client_secret}"
-#           },
-#           ClientId="${client_id}"
-#         )
-#         id_token = auth_response["AuthenticationResult"]["IdToken"]
-#         client_identity = boto3.client("cognito-identity", region_name="${region}")
-#         identity_response = client_identity.get_id(
-#           IdentityPoolId="${identity_pool_id}",
-#           Logins={
-#             f"cognito-idp.${region}.amazonaws.com/${user_pool_id}": id_token
-#           }
-#         )
-#         identity_id = identity_response['IdentityId']
-#         credentials = client_identity.get_credentials_for_identity(
-#           IdentityId=identity_id,
-#           Logins={
-#             f"cognito-idp.${region}.amazonaws.com/${user_pool_id}": id_token
-#           }
-#         )
-#         key = credentials["Credentials"]["AccessKeyId"]
-#         secret = credentials["Credentials"]["SecretKey"]
-#         token = credentials["Credentials"]["SessionToken"]
-#         spawner.environment['AWS_ACCESS_KEY_ID'] = key
-#         spawner.environment['AWS_SECRET_ACCESS_KEY'] = secret
-#         spawner.environment['AWS_SESSION_TOKEN'] = token
-
-#       c.Spawner.auth_state_hook = auth_state_hook
-
-# Oauth authentication
-  config:
-    GenericOAuthenticator:
-      oauth_callback_url: ${jupyterdomain}
-      client_id: ${client_id}
-      client_secret: ${client_secret}
-      authorize_url: ${authorize_url}
-      token_url: ${token_url}
-      userdata_url: ${userdata_url}
-      scope:
-        - openid
-        - profile
-      username_key: "${username_key}"
-      login_service: "oauth"
-      allow_all: true # Allows all oauth authenticated users to use Jupyterhub. For finer grained control, you can use `allowed_users`: https://jupyterhub.readthedocs.io/en/stable/tutorial/getting-started/authenticators-users-basics.html#deciding-who-is-allowed
-    JupyterHub:
-      authenticator_class: generic-oauth
-
-cull:
-  enabled: true
-  users: true
-  removeNamedServers: true
-  timeout: 3600
-  every: 300
+      c.KubeSpawner.http_timeout = 300
 
 proxy:
   https:
@@ -112,7 +23,7 @@ proxy:
       service.beta.kubernetes.io/aws-load-balancer-backend-protocol: "tcp"
       service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout: "3600"
       service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
-      service.beta.kubernetes.io/aws-load-balancer-scheme: internal # works with VPN module for security 
+      service.beta.kubernetes.io/aws-load-balancer-scheme: internal # connect with VPN module for security 
       service.beta.kubernetes.io/aws-load-balancer-type: external
       service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: 'true'
       service.beta.kubernetes.io/aws-load-balancer-ip-address-type: ipv4
@@ -120,8 +31,28 @@ proxy:
 singleuser:
   startTimeout: 1200
   defaultUrl: /lab
+  cmd: "start-singleuser.sh"
+  lifecycleHooks:
+    postStart:
+      exec:
+        command:
+          - /bin/sh
+          - -c
+          - |
+            (
+              if [ -n "$${JUPYTER_PRELOAD_CONDA_PACKAGES:-}" ] && command -v conda >/dev/null 2>&1; then
+                echo "Installing conda packages: $${JUPYTER_PRELOAD_CONDA_PACKAGES}"
+                conda install -y $${JUPYTER_PRELOAD_CONDA_PACKAGES} || true
+              fi
+              if [ -n "$${JUPYTER_PRELOAD_PIP_PACKAGES:-}" ] && command -v pip >/dev/null 2>&1; then
+                echo "Installing pip packages: $${JUPYTER_PRELOAD_PIP_PACKAGES}"
+                pip install --quiet --no-cache-dir --user $${JUPYTER_PRELOAD_PIP_PACKAGES} || true
+              fi
+            ) >/home/jovyan/.preload.log 2>&1 &
+            exit 0
   profileList:
     - display_name: General Purpose (CPU)
+      default: true
       description: "Multi-runtime notebooks on x86 nodes managed by Karpenter"
       profile_options:
         base_image:
@@ -132,98 +63,32 @@ singleuser:
               description: "Lightweight Python 3 environment for basic development"
               kubespawner_override:
                 image: quay.io/jupyter/minimal-notebook:2024-03-14
-                lifecycle_hooks:
-                  postStart:
-                    exec:
-                      command:
-                        - /bin/bash
-                        - -lc
-                        - |
-                          if [[ -n "$${JUPYTER_PRELOAD_PIP_PACKAGES:-}" ]]; then
-                            echo "Installing pip packages: $${JUPYTER_PRELOAD_PIP_PACKAGES}"
-                            pip install --quiet --no-cache-dir $${JUPYTER_PRELOAD_PIP_PACKAGES}
-                          fi
             scipy:
               display_name: "SciPy Stack (Python 3.11)"
               description: "Python with NumPy, SciPy, Pandas, Matplotlib"
               default: true
               kubespawner_override:
                 image: quay.io/jupyter/scipy-notebook:2024-03-14
-                lifecycle_hooks:
-                  postStart:
-                    exec:
-                      command:
-                        - /bin/bash
-                        - -lc
-                        - |
-                          if [[ -n "$${JUPYTER_PRELOAD_PIP_PACKAGES:-}" ]]; then
-                            echo "Installing pip packages: $${JUPYTER_PRELOAD_PIP_PACKAGES}"
-                            pip install --quiet --no-cache-dir $${JUPYTER_PRELOAD_PIP_PACKAGES}
-                          fi
             datascience:
               display_name: "Data Science (Python 3.11 + R + Julia)"
               description: "Complete data science stack with Python, R, and Julia"
               kubespawner_override:
                 image: quay.io/jupyter/datascience-notebook:2024-03-14
-                lifecycle_hooks:
-                  postStart:
-                    exec:
-                      command:
-                        - /bin/bash
-                        - -lc
-                        - |
-                          if [[ -n "$${JUPYTER_PRELOAD_PIP_PACKAGES:-}" ]]; then
-                            echo "Installing pip packages: $${JUPYTER_PRELOAD_PIP_PACKAGES}"
-                            pip install --quiet --no-cache-dir $${JUPYTER_PRELOAD_PIP_PACKAGES}
-                          fi
             r-notebook:
               display_name: "R Environment"
               description: "R with popular packages and IRkernel"
               kubespawner_override:
                 image: quay.io/jupyter/r-notebook:2024-03-14
-                lifecycle_hooks:
-                  postStart:
-                    exec:
-                      command:
-                        - /bin/bash
-                        - -lc
-                        - |
-                          if [[ -n "$${JUPYTER_PRELOAD_PIP_PACKAGES:-}" ]]; then
-                            echo "Installing pip packages: $${JUPYTER_PRELOAD_PIP_PACKAGES}"
-                            pip install --quiet --no-cache-dir $${JUPYTER_PRELOAD_PIP_PACKAGES}
-                          fi
             tensorflow:
               display_name: "TensorFlow (Python 3.11)"
               description: "Python with TensorFlow and ML libraries"
               kubespawner_override:
                 image: quay.io/jupyter/tensorflow-notebook:2024-03-14
-                lifecycle_hooks:
-                  postStart:
-                    exec:
-                      command:
-                        - /bin/bash
-                        - -lc
-                        - |
-                          if [[ -n "$${JUPYTER_PRELOAD_PIP_PACKAGES:-}" ]]; then
-                            echo "Installing pip packages: $${JUPYTER_PRELOAD_PIP_PACKAGES}"
-                            pip install --quiet --no-cache-dir $${JUPYTER_PRELOAD_PIP_PACKAGES}
-                          fi
             pytorch:
               display_name: "PyTorch (Python 3.11)"
               description: "Python with PyTorch and deep learning libraries"
               kubespawner_override:
                 image: quay.io/jupyter/pytorch-notebook:2024-03-14
-                lifecycle_hooks:
-                  postStart:
-                    exec:
-                      command:
-                        - /bin/bash
-                        - -lc
-                        - |
-                          if [[ -n "$${JUPYTER_PRELOAD_PIP_PACKAGES:-}" ]]; then
-                            echo "Installing pip packages: $${JUPYTER_PRELOAD_PIP_PACKAGES}"
-                            pip install --quiet --no-cache-dir $${JUPYTER_PRELOAD_PIP_PACKAGES}
-                          fi
         package_bundle:
           display_name: Extra Packages
           description: "Optional curated package bundles installed at spawn"
@@ -238,7 +103,8 @@ singleuser:
               display_name: "Data Science"
               kubespawner_override:
                 environment:
-                  JUPYTER_PRELOAD_PIP_PACKAGES: "pandas==2.1.4 numpy==1.26.4 scikit-learn==1.4.1 seaborn==0.13.2"
+                  # Prefer conda for scientific stack to ensure binary packages
+                  JUPYTER_PRELOAD_CONDA_PACKAGES: "pandas=2.1.4 numpy=1.26.4 scikit-learn=1.4.2 seaborn=0.13.2"
             mlops:
               display_name: "MLOps"
               kubespawner_override:
@@ -310,7 +176,7 @@ singleuser:
             operator: "Equal"
             value: "user"
             effect: "NoSchedule"
-        cmd: null
+
 
     - display_name: Memory Optimized (CPU 256Gi)
       description: "For analytics workloads requiring 100-250Gi in-memory datasets"
@@ -354,7 +220,7 @@ singleuser:
               kubespawner_override:
                 cpu_guarantee: 32
                 cpu_limit: 48
-                mem_guarantee: 256G
+                mem_guarantee: 240G
                 mem_limit: 300G
             xxlarge:
               display_name: "r6i.32xlarge (128 CPU / 512Gi RAM)"
@@ -372,10 +238,10 @@ singleuser:
             operator: "Equal"
             value: "user"
             effect: "NoSchedule"
-        cmd: null
+
 
     - display_name: GPU - NVIDIA G5 (Time-Slicing)
-      default: true
+      default: false
       description: "Single GPU notebooks with NVIDIA time-slicing pools"
       profile_options:
         image:
@@ -567,7 +433,7 @@ singleuser:
         mem_limit: 100G
         extra_resource_limits:
           aws.amazon.com/neuron: "1"
-        cmd: null
+        cmd: "start-singleuser.sh"
   serviceAccountName: ${jupyter_single_user_sa_name}
   allowPrivilegeEscalation: true
   extraPodConfig: # This is needed for Jovyan user running in every single pod, access the Service Account
@@ -578,10 +444,9 @@ singleuser:
     NOTEBOOK_ARGS: "--allow-root"
     CHOWN_HOME: "yes"
     CHOWN_HOME_OPTS: "-R"
-    CHOWN_EXTRA: "/home/shared"
+    CHOWN_EXTRA: "/home/jovyan/shared"
   uid: 0
   fsGid: 0
-  cmd: null
   storage:
     type: "static"
     static:
@@ -596,11 +461,11 @@ singleuser:
       mountPath: /home/jovyan/shared
       readOnly: false
 
-
-  extraEnv:
-    JUPYTER_PRELOAD_PIP_PACKAGES: ""
-    JUPYTER_PRELOAD_CONDA_PACKAGES: ""
-  cmd: null
+  # Uncomment this to disable pre-pulling of images ? 
+  # extraEnv:
+  #   JUPYTER_PRELOAD_PIP_PACKAGES: ""
+  #   JUPYTER_PRELOAD_CONDA_PACKAGES: ""
+  # cmd: null
 
 cull:
   enabled: true

@@ -17,3 +17,18 @@ output "transfer_server_dns" {
   description = "Managed Route53 record for the SFTP endpoint"
   value       = var.transfer_hostname
 }
+
+output "vpc_id" {
+  description = "VPC ID for use by nested modules like VPN"
+  value       = module.vpc.vpc_id
+}
+
+output "private_subnet_id" {
+  description = "First private subnet ID for VPN endpoint"
+  value       = module.vpc.private_subnets[0]
+}
+
+output "vpc_cidr" {
+  description = "VPC CIDR block"
+  value       = module.vpc.vpc_cidr_block
+}

@@ -1,0 +1,118 @@
+# Secure Multi-language development environment
+# CVE-remediated version with Ubuntu 22.04 and updated packages
+# Build time optimizations: multi-stage build, layer caching, parallel installs
+
+# Stage 1: Base system setup with Ubuntu 22.04 LTS
+FROM ubuntu:22.04 as base
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
+# Install system dependencies in a single layer with cleanup
+RUN apt-get update && apt-get install -y \
+    curl wget git vim unzip software-properties-common \
+    apt-transport-https ca-certificates gnupg lsb-release \
+    build-essential gcc g++ make cmake \
+    python2.7 python2.7-dev python3 python3-dev python3-pip python3-venv \
+    r-base r-base-dev \
+    libssl-dev libcurl4-openssl-dev libxml2-dev libfontconfig1-dev \
+    libharfbuzz-dev libfribidi-dev libfreetype6-dev libpng-dev \
+    libtiff5-dev libjpeg-dev \
+    && curl https://bootstrap.pypa.io/pip/2.7/get-pip.py -o get-pip.py \
+    && python2.7 get-pip.py \
+    && rm get-pip.py \
+    && ln -s /usr/bin/python2.7 /usr/bin/python2 \
+    && ln -s /usr/bin/python3 /usr/bin/python \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# Stage 2: Python package installation with security updates
+FROM base as python-packages
+
+WORKDIR /app
+
+# Copy requirements files
+COPY requirements-python2.txt requirements-python3.txt ./
+
+# Install Python 2 packages (legacy - with pinned secure versions where possible)
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python2 -m pip install --no-cache-dir -r requirements-python2.txt
+
+# Install Python 3 packages with CVE fixes
+# Create updated requirements with security patches
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python3 -m pip install --no-cache-dir \
+    # Core security updates (CVE fixes)
+    setuptools==70.0.0 \
+    wheel==0.42.0 \
+    pip==24.0 \
+    # Updated packages from requirements-python3.txt with security fixes
+    aiohttp==3.9.4 \
+    starlette==0.40.0 \
+    tornado==6.5 \
+    urllib3==2.2.0 \
+    requests==2.32.0 \
+    certifi==2024.2.2 \
+    # Data science packages (updated to secure versions)
+    numpy==1.26.4 \
+    pandas==2.2.0 \
+    matplotlib==3.8.2 \
+    scipy==1.12.0 \
+    # Jupyter packages (CVE fixes)
+    jupyterlab==4.2.5 \
+    notebook==7.2.0 \
+    ipython==8.22.0 \
+    jupyter-core==5.7.1 \
+    # ML packages (skip scikit-learn or use latest)
+    # Note: Removed scikit-learn 0.20.4 (CVE-2020-13092)
+    # Use latest version or omit if not needed
+    scikit-learn==1.4.1 \
+    # Additional packages
+    flask==3.0.2 \
+    fastapi==0.110.0 \
+    pydantic==2.6.1 \
+    # Prometheus client for metrics
+    prometheus-client==0.20.0
+
+# Stage 3: R package installation
+FROM python-packages as r-packages
+
+COPY requirements-r.txt ./
+
+# Install R packages with parallel processing
+RUN echo "options(Ncpus = $(nproc))" >> /usr/lib/R/etc/Rprofile.site && \
+    Rscript -e "install.packages(readLines('requirements-r.txt'), repos='https://cran.rstudio.com/', dependencies=TRUE)"
+
+# Stage 4: Final optimized image
+FROM r-packages as final
+
+# Create non-root user
+RUN useradd -m -s /bin/bash -u 1000 devuser && \
+    chown -R devuser:devuser /app
+
+USER devuser
+
+# Set environment variables
+ENV PATH="/home/devuser/.local/bin:$PATH"
+ENV PYTHONPATH="/app:$PYTHONPATH"
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python3 -c "import sys; print('Python 3:', sys.version)" && \
+        python2 -c "import sys; print('Python 2:', sys.version)" && \
+        R --version
+
+# maybe do 
+# HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+#     CMD python3 -c 'import numpy, pandas' && \
+#     python2 -c 'import numpy' && \
+#     Rscript -e 'library(ggplot2)' || exit 1
+
+# Label for identification
+LABEL maintainer="Evgeny Glinsky"
+LABEL version="2.0.0-secure"
+LABEL description="CVE-remediated multi-language development environment (Python2, Python3, R)"
+LABEL security.scan-date="2025-10-07"
+
+# No default CMD - will be overridden by Kubernetes deployment
+
